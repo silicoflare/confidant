@@ -14,7 +14,9 @@ import {
   hmac,
   log,
   panic,
+  print,
   random,
+  separator,
   stringy,
 } from "./utils";
 import env from "../env";
@@ -27,136 +29,104 @@ console.info = function () {};
 const { exit } = process;
 
 export async function initialize(password: string, dirname: string) {
-  // compressing and encrypting diary
-  const [K_C, P_C] = ECDH();
-  const [K_F, P_F] = ECDH();
-  const S_CF = await derive(K_C, P_F);
-  const fidsalt = randomBytes(32);
-  const fidcode = random(10000, 100000);
-  const D = pbkdf2(S_CF, fidsalt, fidcode, 64, "sha256");
+  // compressing and encrypting vault
+  const [K_A, P_A] = ECDH();
+  const [K_B, P_B] = ECDH();
+  const S_AB = await derive(K_A, P_B);
+  const salt = randomBytes(32);
+  const code = random(10000, 100000);
+  const D = pbkdf2(S_AB, salt, code, 64, "sha256");
   await $`zip -r9 confidant.zip ${dirname} > /dev/null`;
   await $`rm -rf ${dirname}`;
   const Z = readFileSync("confidant.zip");
   const E_Z = encrypt_file(Z, D);
-  writeFileSync(`vault.ant`, E_Z);
 
-  // creating key.fid
-  const fidData = {
-    privateKey: stringy(K_F),
-    salt: stringy(fidsalt),
-    code: fidcode,
+  // creating dirname.key
+  const keyfile = {
+    salt: stringy(salt),
+    code: code,
+    privateKey: stringy(K_A),
   };
-  const fidkey = randomBytes(32);
-  const consalt = randomBytes(32);
-  const D_C = hmac(consalt, fidkey);
-  const E_F = encrypt_file(buffer(stringify(fidData), "utf8"), D_C);
-  writeFileSync(`key.fid`, E_F);
-
-  // create data.con
   const auth_secret = randomBytes(32);
-  const conData = {
-    privateKey: stringy(K_C),
-    fidkey: stringy(fidkey),
-    consalt: stringy(consalt),
-  };
-  const D_U = hmac(auth_secret, buffer(env.AUTH_KEY));
-  const E_C = encrypt_file(buffer(stringify(conData), "utf8"), D_U);
-  writeFileSync("data.con", E_C);
+  const confsalt = randomBytes(64);
+  const K = hmac(auth_secret, confsalt);
+  const E_K = encrypt_file(Buffer.from(JSON.stringify(keyfile), "utf8"), K);
+  writeFileSync(`${dirname}.key`, E_K);
 
+  // creating config data
   const recovery_phrase = generate_recovery_phrase();
-  writeFileSync("recovery.txt", recovery_phrase + "\n");
+  writeFileSync(`${dirname}_recovery.txt`, recovery_phrase + "\n");
   const recovery_auth_key = HmacSHA256(recovery_phrase, env.AUTH_KEY).toString(
     enc.Base64,
   );
   const password_auth_key = HmacSHA256(password, env.AUTH_KEY).toString(
     enc.Base64,
   );
-
-  // create config.toml
-  const configData = {
-    config: {
-      con: "data.con",
-      fid: "key.fid",
-      ant: "vault.ant",
-      dir: dirname,
-      keystore: stringy(encrypt(auth_secret, buffer(password_auth_key))),
-      recoverystore: stringy(encrypt(auth_secret, buffer(recovery_auth_key))),
-      phrasestore: AES.encrypt(env.PHRASE, password_auth_key).toString(),
-      recphrasestore: AES.encrypt(env.PHRASE, recovery_auth_key).toString(),
-    },
+  const D_C = {
+    dir: dirname,
+    confsalt: stringy(confsalt),
+    privateKey: stringy(K_B),
+    keystore: stringy(encrypt(auth_secret, buffer(password_auth_key))),
+    recoverystore: stringy(encrypt(auth_secret, buffer(recovery_auth_key))),
+    phrasestore: AES.encrypt(env.PHRASE, password_auth_key).toString(),
+    recphrasestore: AES.encrypt(env.PHRASE, recovery_auth_key).toString(),
   };
-  writeFileSync("config.toml", buffer(stringify(configData), "utf8"));
+
+  // create dirname.vault
+  writeFileSync(
+    `${dirname}.vault`,
+    Buffer.concat([Buffer.from(JSON.stringify(D_C)), separator, E_Z]),
+  );
+
   console.log(`Recovery phrase:`);
   console.log(chalk`{magenta    ${recovery_phrase}}`);
   await $`rm confidant.zip`;
 
+  // create .gitignore
   const gitignore = `# .gitignore
 
-data.con
-key.fid
-recovery.txt
+*.con
+*.fid
+*_recovery.txt
 confidant.zip
-.confidant
-${dirname}
-.env
+*.confidant
 `;
-  writeFileSync(".gitignore", gitignore);
+  writeFileSync(`.gitignore`, gitignore);
 }
 
-export async function decrypt_diary(password: string) {
+export async function decrypt_diary(password: string, dirname: string) {
+  // Read and split the vault file
+  const combined = readFileSync(`${dirname}.vault`);
+  const index = combined.indexOf(separator);
+  const D_C = combined.subarray(0, index).toString("utf8");
+  const E_Z = combined.subarray(index + separator.length);
+
   // Check if password is correct
-  const config = Object(
-    parse(readFileSync("config.toml").toString("utf8")),
-  ) as Config;
   const password_auth_key = HmacSHA256(password, env.AUTH_KEY).toString(
     enc.Base64,
   );
-  const dec = AES.decrypt(
-    config.config.phrasestore,
-    password_auth_key,
-  ).toString(enc.Utf8);
-  if (dec !== env.PHRASE) {
-    panic`Wrong password. Try again or reset it.`;
+  const config = JSON.parse(D_C);
+  const phrase = AES.decrypt(config.phrasestore, password_auth_key).toString(
+    enc.Utf8,
+  );
+  if (phrase !== env.PHRASE) {
+    panic`Incorrect password. Try again or reset it.`;
   }
 
-  // Decrypt data.con
-  const auth_secret = decrypt(
-    buffer(config.config.keystore),
-    buffer(password_auth_key),
-  );
-  const D_U = hmac(auth_secret, buffer(env.AUTH_KEY));
-  const conData = Object(
-    parse(decrypt_file(readFileSync(config.config.con), D_U).toString("utf8")),
-  ) as ConData;
+  const auth_secret = decrypt(config.keystore, buffer(password_auth_key));
+  const K = hmac(auth_secret, config.confsalt);
+  const E_K = readFileSync(`${dirname}.key`);
+  const keyfile = JSON.parse(decrypt_file(E_K, K).toString("utf8"));
 
-  // Decrypt key.fid
-  const { consalt, fidkey, privateKey: conK } = conData;
-  const D_C = hmac(buffer(consalt), buffer(fidkey));
-  const fidData = Object(
-    parse(decrypt_file(readFileSync(config.config.fid), D_C).toString("utf8")),
-  ) as FidData;
-  const { privateKey: fidK, salt, code } = fidData;
+  const K_A = buffer(keyfile.privateKey);
+  const K_B = buffer(config.privateKey);
+  const P_B = getPublic(K_B);
+  const S_AB = await derive(K_A, P_B);
+  const D = pbkdf2(S_AB, buffer(keyfile.salt), keyfile.code, 64, "sha256");
 
-  // Decrypt diary.ant
-  const S_CF = await derive(buffer(conK), getPublic(buffer(fidK)));
-  const D = pbkdf2(S_CF, buffer(salt), code, 64, "sha256");
-  writeFileSync(
-    ".confidant",
-    encrypt(
-      Buffer.from(
-        JSON.stringify({
-          dirname: config.config.dir,
-          key: stringy(D),
-        }),
-        "utf8",
-      ),
-      buffer(env.AUTH_KEY),
-    ),
-  );
-  writeFileSync(
-    "confidant.zip",
-    decrypt_file(readFileSync(config.config.ant), D),
-  );
+  const Z = decrypt_file(E_Z, D);
+  writeFileSync(`confidant.zip`, Z);
+  writeFileSync(`.${dirname}.confidant`, encrypt(D, buffer(env.AUTH_KEY)));
   await $`unzip confidant.zip > /dev/null && rm confidant.zip`;
 }
 

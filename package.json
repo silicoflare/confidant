@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "init": "bun ./scripts/init.ts",
+    "sh": "bun ./scripts/sh.ts",
     "build": "bun ./scripts/build.ts"
   },
   "bin": {

@@ -1,12 +1,17 @@
 #!/bin/env bun
 
-import { input, password, select } from "@inquirer/prompts";
+import { checkbox, input, password, select } from "@inquirer/prompts";
 import { $ } from "bun";
 import chalk from "chalk-template";
 import { Command } from "commander";
 import { decrypt_diary, encrypt_diary, initialize, recovery } from "./src/main";
 import { existsSync } from "fs";
-import checkForFiles, { log, panic } from "./src/utils";
+import checkForFiles, {
+  getDirectoryNames,
+  getVaultName,
+  log,
+  panic,
+} from "./src/utils";
 
 const program = new Command();
 const { exit } = process;
@@ -18,33 +23,8 @@ program
   .command("init")
   .description("initialize a confidant vault")
   .action(async () => {
-    // check if a vault already exists
-    if (await $`test -e config.toml`) {
-      console.log(
-        chalk`{red A Confidant vault already exists in this directory.}`,
-      );
-      exit(1);
-    }
+    const dirname = (await getDirectoryNames()) as string;
 
-    // select a directory
-    let dirs;
-    try {
-      dirs = (await $`ls -d */`.text()).trim();
-    } catch (e) {
-      console.error(
-        'No directories found in current directory, please create one and run "init" again.',
-      );
-      process.exit(1);
-    }
-
-    let dirlist = dirs.split("\n");
-    const dirname = await select({
-      message: "Select a directory to use:",
-      choices: dirlist.map((x) => ({
-        name: x,
-        value: x,
-      })),
-    });
     const pass = await password({
       message: chalk`{reset {yellow Enter a password to use:}}`,
       mask: "•",
@@ -54,8 +34,7 @@ program
       mask: "•",
     });
     if (pass !== confpass) {
-      console.log(chalk`Passwords don't math.`);
-      exit(1);
+      panic`Passwords don't match. Exiting...`;
     }
 
     await initialize(pass, dirname);
@@ -66,14 +45,18 @@ program
   .command("decrypt")
   .description("decrypt the vault")
   .option("-l, --live", "decrypt in live mode")
+  .option("-v, --vault <name>", "name of the vault to decrypt")
   .action(async (args) => {
-    checkForFiles();
+    let files: string[];
+    if (!args.vault) {
+      args.vault = await getVaultName();
+    }
 
     const pass = await password({
       message: chalk`{reset {yellow Enter the password:}}`,
       mask: "•",
     });
-    await decrypt_diary(pass);
+    await decrypt_diary(pass, args.vault);
     if (args.live) {
       await input({
         message: chalk`{yellow Live mode started. Press ENTER to encrypt}`,

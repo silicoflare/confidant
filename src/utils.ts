@@ -5,6 +5,7 @@ import { generate } from "random-words";
 import chalk from "chalk-template";
 import { $ } from "bun";
 import { existsSync } from "fs";
+import { select } from "@inquirer/prompts";
 
 export function buffer(input: string): Buffer;
 export function buffer(input: string, encoding: BufferEncoding): Buffer;
@@ -69,8 +70,11 @@ export async function exists(dir: string) {
   }
 }
 
-export function log(str: TemplateStringsArray, ...placeholders: unknown[]) {
-  console.log(chalk(str, placeholders));
+export function log(
+  str: TemplateStringsArray,
+  ...placeholders: unknown[]
+): void {
+  console.log(chalk(str as TemplateStringsArray, ...placeholders));
 }
 
 export function panic(str: TemplateStringsArray) {
@@ -91,4 +95,79 @@ export default function checkForFiles() {
     });
     process.exit(1);
   }
+}
+
+export const separator = Buffer.from([
+  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  0xff, 0xff, 0xff,
+]);
+
+export function print(key: string, value: string) {
+  console.log(chalk`{green ${key}:} {blue ${value}}`);
+}
+
+export async function getDirectoryNames() {
+  const dirlist = (await $`ls -d */`.text()).trim();
+
+  if (!dirlist) {
+    panic`No directories found in current directory, please create one and run "init" again.`;
+    return;
+  }
+  let dirs: string[];
+  const vaultList = (await $`ls *.vault`.text()).trim().match(/.*\.vault/g);
+  if (vaultList) {
+    const vaults = vaultList.map((x) => x.replace(".vault", ""));
+    dirs = Array.from(new Set(dirlist.split("\n")).difference(new Set(vaults)));
+  } else {
+    dirs = dirlist.split("\n");
+  }
+
+  if (dirs.length === 0) {
+    panic`No usable directories found in current directory, please create one and run "init" again.`;
+    return;
+  } else if (dirs.length === 1) {
+    return dirs[0];
+  }
+
+  const dirname = await select({
+    message: "Select a directory to use:",
+    choices: dirs.map((x) => ({
+      name: x,
+      value: x,
+    })),
+  });
+
+  return dirname;
+}
+
+export async function getVaultName() {
+  const vaultList = (await $`ls *.vault`.text()).trim().match(/.*\.vault/g);
+  if (!vaultList) {
+    panic`No vaults found in the current directory.`;
+    return;
+  }
+
+  let files: string[];
+  const decryptedList = (await $`bash -c "ls .*.confidant"`.text())
+    .trim()
+    .match(/\.(.*)\.confidant/g);
+  if (decryptedList) {
+    const vaults = vaultList.map((x) => x.replace(".vault", ""));
+    const decs = decryptedList.map((x) => x.replace(/\.(.*)\.confidant/, "$1"));
+    files = Array.from(new Set(vaults).difference(new Set(decs)));
+  } else {
+    files = vaultList.map((x) => x.replace(".vault", ""));
+  }
+  if (files.length === 1) {
+    return files[0];
+  }
+
+  const vault = await select({
+    message: "Select vault to decrypt:",
+    choices: files.map((x) => ({
+      name: x.replace(".vault", ""),
+      value: x.replace(".vault", ""),
+    })),
+  });
+  return vault;
 }
