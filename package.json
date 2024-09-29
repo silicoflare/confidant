@@ -1,0 +1,36 @@
+{
+  "name": "confidant",
+  "version": "1.0.0",
+  "module": "confidant.ts",
+  "type": "module",
+  "scripts": {
+    "init": "bun ./scripts/init.ts",
+    "build": "bun ./scripts/build.ts"
+  },
+  "bin": {
+    "confidant": "./confidant.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "@inquirer/prompts": "^6.0.1",
+    "@types/commander": "^2.12.2",
+    "@types/crypto-js": "^4.2.2",
+    "@types/eccrypto": "^1.1.6",
+    "argon2": "^0.41.1",
+    "chalk": "^5.3.0",
+    "chalk-template": "^1.1.0",
+    "commander": "^12.1.0",
+    "crypto": "^1.0.1",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.4.5",
+    "eccrypto": "^1.1.6",
+    "fs": "^0.0.1-security",
+    "random-words": "^2.0.1"
+  }
+}
