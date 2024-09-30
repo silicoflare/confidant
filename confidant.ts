@@ -4,7 +4,7 @@ import { input, password } from "@inquirer/prompts";
 import { $ } from "bun";
 import chalk from "chalk-template";
 import { Command } from "commander";
-import { decrypt_vault, encrypt_vault, initialize, recovery } from "./src/main";
+import { decrypt_vault, encrypt_vault, initialize, reset } from "./src/main";
 import { existsSync, readdirSync } from "fs";
 import checkForFiles, {
   Files,
@@ -26,7 +26,7 @@ program.name("confidant").description("Creates a very secure file vault.");
 program
   .command("init")
   .description("initialize a confidant vault")
-  .argument("[directory]", "Directory to use to create a vault")
+  .argument("[directory]", "directory to use to create a vault")
   .action(async (dirname) => {
     if (!dirname) {
       dirname = (await getDirectoryNames()) as string;
@@ -61,7 +61,7 @@ program
 program
   .command("decrypt")
   .description("decrypt the vault")
-  .argument("[vault]", "Name of the vault to decrypt")
+  .argument("[vault]", "name of the vault to decrypt")
   .option("-l, --live", "decrypt in live mode")
   .action(async (args, opts) => {
     if (!args) {
@@ -98,7 +98,7 @@ program
 program
   .command("encrypt")
   .description("encrypt the vault")
-  .argument("[vault]", "Name of the vault to decrypt")
+  .argument("[vault]", "name of the vault to encrypt")
   .action(async (vault) => {
     if (!vault) {
       vault = await getDecryptedName();
@@ -119,15 +119,29 @@ program
   });
 
 program
-  .command("recover")
-  .description("recover vault when password is forgotten")
-  .action(async () => {
-    checkForFiles();
+  .command("reset")
+  .description("reset a vault's password")
+  .argument("[vault]", "name of the vault to decrypt")
+  .action(async (vault) => {
+    if (!vault) {
+      vault = await getVaultName();
+    } else {
+      const vaults = new Files(/(.*).vault/g).intersection(
+        new Files(/(.*).key/g),
+      ).data as string[];
+      if (!vaults.includes(vault)) {
+        console.log(
+          chalk`{red Vault "${vault}" not found in current directory.}`,
+        );
+        exit(1);
+      }
+    }
 
+    log`{blue Resetting password of "{green ${vault}}"...}`;
     const recphrase = await input({
       message: chalk`{reset {yellow Enter the recovery phrase:}}`,
     });
-    recovery(recphrase);
+    reset(vault, recphrase);
   });
 
 await program.parseAsync();

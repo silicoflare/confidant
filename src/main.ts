@@ -11,6 +11,7 @@ import {
   encrypt,
   encrypt_file,
   generate_recovery_phrase,
+  getRandomPassword,
   hmac,
   log,
   panic,
@@ -22,8 +23,7 @@ import {
 import env from "../env";
 import { AES, enc, HmacSHA256 } from "crypto-js";
 import chalk from "chalk-template";
-import type { ConData, Config, FidData } from "../types";
-import { password } from "@inquirer/prompts";
+import { input, password } from "@inquirer/prompts";
 
 console.info = function () {};
 const { exit } = process;
@@ -165,45 +165,76 @@ export async function encrypt_vault(dirname: string) {
   }
 }
 
-export async function recovery(recoverystring: string) {
-  // Check if recovery phrase is correct
-  let config = Object(parse(readFileSync("config.toml").toString("utf8")));
-  let recovery_auth_key = HmacSHA256(recoverystring, env.AUTH_KEY).toString(
-    enc.Base64,
-  );
-  const dec = AES.decrypt(
-    config.config.recphrasestore,
-    recovery_auth_key,
-  ).toString(enc.Utf8);
-  if (dec !== env.PHRASE) {
-    panic`Wrong recovery string. Please try again.`;
+export async function reset(dirname: string, recoverystring: string) {
+  try {
+    // Read and split the vault file
+    const combined = readFileSync(`${dirname}.vault`);
+    const index = combined.indexOf(separator);
+    const D_C = combined.subarray(0, index).toString("utf8");
+    const E_Z = combined.subarray(index + separator.length);
+
+    // Check if recovery key is correct
+    const recovery_auth_key = HmacSHA256(recoverystring, env.AUTH_KEY).toString(
+      enc.Base64,
+    );
+    const config = JSON.parse(Buffer.from(D_C, "base64").toString());
+    const phrase = AES.decrypt(
+      config.recphrasestore,
+      recovery_auth_key,
+    ).toString(enc.Utf8);
+    if (phrase !== env.PHRASE) {
+      panic`Incorrect recovery phrase. Try again.`;
+    }
+
+    // create new credentials
+    const auth_secret = decrypt(
+      config.recoverystore,
+      buffer(recovery_auth_key),
+    );
+
+    const genPass = getRandomPassword(14);
+    const pass = await input({
+      message: chalk`{reset {yellow Enter a new password:}}`,
+      default: genPass,
+    });
+    const confpass = await input({
+      message: chalk`{reset {yellow Enter the password again:}}`,
+      default: genPass,
+    });
+    if (pass !== confpass) {
+      panic`Passwords don't match. Exiting...`;
+    }
+    const newrecphrase = generate_recovery_phrase();
+
+    const password_auth_key = HmacSHA256(pass, env.AUTH_KEY).toString(
+      enc.Base64,
+    );
+    const _recovery_auth_key = HmacSHA256(newrecphrase, env.AUTH_KEY).toString(
+      enc.Base64,
+    );
+
+    const _D_C = {
+      ...config,
+      keystore: stringy(encrypt(auth_secret, buffer(password_auth_key))),
+      recoverystore: stringy(encrypt(auth_secret, buffer(_recovery_auth_key))),
+      phrasestore: AES.encrypt(env.PHRASE, password_auth_key).toString(),
+      recphrasestore: AES.encrypt(env.PHRASE, _recovery_auth_key).toString(),
+    };
+
+    // create dirname.vault
+    writeFileSync(
+      `${dirname}.vault`,
+      Buffer.concat([
+        Buffer.from(Buffer.from(JSON.stringify(_D_C)).toString("base64")),
+        separator,
+        E_Z,
+      ]),
+    );
+
+    writeFileSync(`${dirname}_recovery.txt`, newrecphrase);
+    console.log(`New recovery phrase:`);
+    console.log(chalk`{magenta    ${newrecphrase}}`);
+  } catch (e) {
+    panic`Error recovering vault. The files could be corrupted.`;
   }
-
-  // Generate a fresh config file
-  const auth_secret = decrypt(
-    buffer(config.config.recoverystore),
-    buffer(recovery_auth_key),
-  );
-  const newpass = await password({
-    message: chalk`{reset {yellow Enter a new password:}}`,
-    mask: "•",
-  });
-  const recstring = generate_recovery_phrase();
-  recovery_auth_key = HmacSHA256(recstring, env.AUTH_KEY).toString(enc.Base64);
-  const password_auth_key = HmacSHA256(newpass, env.AUTH_KEY).toString(
-    enc.Base64,
-  );
-
-  config.config = {
-    ...config.config,
-    keystore: stringy(encrypt(auth_secret, buffer(password_auth_key))),
-    recoverystore: stringy(encrypt(auth_secret, buffer(recovery_auth_key))),
-    phrasestore: AES.encrypt(env.PHRASE, password_auth_key).toString(),
-    recphrasestore: AES.encrypt(env.PHRASE, recovery_auth_key).toString(),
-  };
-  writeFileSync("config.toml", buffer(stringify(config), "utf8"));
-
-  writeFileSync("recovery.txt", recstring + "\n");
-  console.log(`New recovery phrase:`);
-  log`{magenta    ${recstring}}`;
 }
