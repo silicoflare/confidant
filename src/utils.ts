@@ -4,7 +4,7 @@ import { generatePrivate, getPublic } from "eccrypto";
 import { generate } from "random-words";
 import chalk from "chalk-template";
 import { $ } from "bun";
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { select } from "@inquirer/prompts";
 
 export function buffer(input: string): Buffer;
@@ -106,6 +106,32 @@ export function print(key: string, value: string) {
   console.log(chalk`{green ${key}:} {blue ${value}}`);
 }
 
+export class Files {
+  data: string[] | null = null;
+
+  constructor(regex: RegExp | string) {
+    try {
+      const data = readdirSync(".").filter((x) => x.match(regex));
+      this.data = data ? data.map((x) => x.replace(regex, "$1")) : null;
+    } catch (error) {
+      console.error("Error executing command:", error);
+      this.data = null;
+    }
+  }
+
+  toString(): string {
+    return `[ ${this.data ? this.data.join(", ") : "empty"} ]`;
+  }
+
+  intersection(a: Files) {
+    return Array.from(new Set(this.data).intersection(new Set(a.data)));
+  }
+
+  difference(a: Files) {
+    return Array.from(new Set(this.data).difference(new Set(a.data)));
+  }
+}
+
 export async function getDirectoryNames() {
   const dirlist = (await $`ls -d */`.text()).trim();
 
@@ -147,12 +173,25 @@ export async function getVaultName() {
     return;
   }
 
+  const keyList = (await $`ls *.key`.text())
+    .trim()
+    .match(/.*\.key/g) as string[];
+  if (!keyList) {
+    panic`No vaults with keys found in the current directory.`;
+    return;
+  }
+
+  const vaults = Array.from(
+    new Set(vaultList.map((x) => x.replace(".vault", ""))).intersection(
+      new Set(keyList.map((x) => x.replace(".key", ""))),
+    ),
+  );
+
   let files: string[];
   const decryptedList = (await $`bash -c "ls .*.confidant"`.text())
     .trim()
     .match(/\.(.*)\.confidant/g);
   if (decryptedList) {
-    const vaults = vaultList.map((x) => x.replace(".vault", ""));
     const decs = decryptedList.map((x) => x.replace(/\.(.*)\.confidant/, "$1"));
     files = Array.from(new Set(vaults).difference(new Set(decs)));
   } else {
@@ -169,5 +208,33 @@ export async function getVaultName() {
       value: x.replace(".vault", ""),
     })),
   });
+  return vault;
+}
+
+export async function getDecryptedName() {
+  const dec = new Files(/\.(.*)\.confidant/g);
+  if (dec.data === null || dec.data.length === 0) {
+    panic`No decrypted vaults found.`;
+  }
+
+  const vaults = new Files(/(.*).vault/g);
+  if (vaults.data === null) {
+    panic`No vaults found.`;
+  }
+
+  const decrypted = dec.intersection(vaults);
+
+  if (decrypted.length === 1) {
+    return decrypted[0];
+  }
+
+  const vault = await select({
+    message: "Select vault to encrypt:",
+    choices: decrypted.map((x) => ({
+      name: x.replace(".vault", ""),
+      value: x.replace(".vault", ""),
+    })),
+  });
+
   return vault;
 }

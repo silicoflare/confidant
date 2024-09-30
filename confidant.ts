@@ -1,15 +1,15 @@
 #!/bin/env bun
 
-import { checkbox, input, password, select } from "@inquirer/prompts";
+import { input, password } from "@inquirer/prompts";
 import { $ } from "bun";
 import chalk from "chalk-template";
 import { Command } from "commander";
-import { decrypt_diary, encrypt_diary, initialize, recovery } from "./src/main";
+import { decrypt_vault, encrypt_vault, initialize, recovery } from "./src/main";
 import { existsSync } from "fs";
 import checkForFiles, {
+  getDecryptedName,
   getDirectoryNames,
   getVaultName,
-  log,
   panic,
 } from "./src/utils";
 
@@ -47,7 +47,6 @@ program
   .option("-l, --live", "decrypt in live mode")
   .option("-v, --vault <name>", "name of the vault to decrypt")
   .action(async (args) => {
-    let files: string[];
     if (!args.vault) {
       args.vault = await getVaultName();
     }
@@ -56,12 +55,12 @@ program
       message: chalk`{reset {yellow Enter the password:}}`,
       mask: "•",
     });
-    await decrypt_diary(pass, args.vault);
+    await decrypt_vault(pass, args.vault);
     if (args.live) {
       await input({
         message: chalk`{yellow Live mode started. Press ENTER to encrypt}`,
       });
-      await encrypt_diary();
+      await encrypt_vault(args.vault);
       console.log(chalk`{green Successfully encrypted!}`);
     } else {
       console.log(chalk`{green Decrypted sucessfully!}`);
@@ -71,14 +70,13 @@ program
 program
   .command("encrypt")
   .description("encrypt the vault")
-  .action(async () => {
-    checkForFiles();
-
-    if (!existsSync(".confidant")) {
-      panic`The vault was not decrypted yet!`;
+  .option("-v, --vault <name>", "name of the vault to decrypt")
+  .action(async (args) => {
+    if (!args.vault) {
+      args.vault = await getDecryptedName();
     }
 
-    await encrypt_diary();
+    await encrypt_vault(args.vault);
     console.log(chalk`{green Successfully encrypted!}`);
   });
 

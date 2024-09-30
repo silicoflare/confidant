@@ -94,7 +94,7 @@ confidant.zip
   writeFileSync(`.gitignore`, gitignore);
 }
 
-export async function decrypt_diary(password: string, dirname: string) {
+export async function decrypt_vault(password: string, dirname: string) {
   // Read and split the vault file
   const combined = readFileSync(`${dirname}.vault`);
   const index = combined.indexOf(separator);
@@ -130,17 +130,27 @@ export async function decrypt_diary(password: string, dirname: string) {
   await $`unzip confidant.zip > /dev/null && rm confidant.zip`;
 }
 
-export async function encrypt_diary() {
-  const { dirname, key }: { dirname: string; key: string } = JSON.parse(
-    decrypt(readFileSync(".confidant"), buffer(env.AUTH_KEY)).toString("utf8"),
+export async function encrypt_vault(dirname: string) {
+  const D = decrypt(
+    readFileSync(`.${dirname}.confidant`),
+    buffer(env.AUTH_KEY),
   );
-  const D = buffer(key);
+  // create zip file and encrypt it
   await $`zip -r9 confidant.zip ${dirname} > /dev/null`;
   await $`rm -rf ${dirname}`;
   const Z = readFileSync("confidant.zip");
   const E_Z = encrypt_file(Z, D);
-  writeFileSync(`vault.ant`, E_Z);
-  await $`rm confidant.zip .confidant`;
+
+  // read original vault file to get header data
+  const vaultfile = readFileSync(`${dirname}.vault`);
+  const index = vaultfile.indexOf(separator);
+
+  // write new data to vault
+  writeFileSync(
+    `${dirname}.vault`,
+    Buffer.concat([vaultfile.subarray(0, index), separator, E_Z]),
+  );
+  await $`rm confidant.zip .${dirname}.confidant`;
 }
 
 export async function recovery(recoverystring: string) {
