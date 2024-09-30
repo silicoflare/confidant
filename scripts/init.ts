@@ -8,9 +8,6 @@ const env = {
   // Re-run to get a new value
   AUTH_KEY: "${stringy(randomBytes(32))}",
 
-  // Re-run to get a new value
-  AUTH_SALT: "${stringy(randomBytes(64))}",
-
   // Can be literally anything!
   PHRASE: "May the Force be with you!",
 }
