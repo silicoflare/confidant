@@ -109,7 +109,10 @@ export function print(key: string, value: string) {
 export class Files {
   data: string[] | null = null;
 
-  constructor(regex: RegExp | string) {
+  constructor(regex?: RegExp | string) {
+    if (!regex) {
+      return this;
+    }
     try {
       const data = readdirSync(".").filter((x) => x.match(regex));
       this.data = data ? data.map((x) => x.replace(regex, "$1")) : null;
@@ -119,16 +122,24 @@ export class Files {
     }
   }
 
+  empty(): boolean {
+    return this.data === null || this.data.length === 0;
+  }
+
   toString(): string {
     return `[ ${this.data ? this.data.join(", ") : "empty"} ]`;
   }
 
   intersection(a: Files) {
-    return Array.from(new Set(this.data).intersection(new Set(a.data)));
+    const obj = new Files();
+    obj.data = Array.from(new Set(this.data).intersection(new Set(a.data)));
+    return obj;
   }
 
   difference(a: Files) {
-    return Array.from(new Set(this.data).difference(new Set(a.data)));
+    const obj = new Files();
+    obj.data = Array.from(new Set(this.data).difference(new Set(a.data)));
+    return obj;
   }
 }
 
@@ -167,35 +178,25 @@ export async function getDirectoryNames() {
 }
 
 export async function getVaultName() {
-  const vaultList = (await $`ls *.vault`.text()).trim().match(/.*\.vault/g);
-  if (!vaultList) {
+  const vaultList = new Files(/(.*)\.vault/g);
+  if (vaultList.empty()) {
     panic`No vaults found in the current directory.`;
     return;
   }
 
-  const keyList = (await $`ls *.key`.text())
-    .trim()
-    .match(/.*\.key/g) as string[];
-  if (!keyList) {
+  const keyList = new Files(/(.*)\.key/g);
+  if (keyList.empty()) {
     panic`No vaults with keys found in the current directory.`;
     return;
   }
 
-  const vaults = Array.from(
-    new Set(vaultList.map((x) => x.replace(".vault", ""))).intersection(
-      new Set(keyList.map((x) => x.replace(".key", ""))),
-    ),
-  );
-
+  const vaults = vaultList.intersection(keyList);
   let files: string[];
-  const decryptedList = (await $`bash -c "ls .*.confidant"`.text())
-    .trim()
-    .match(/\.(.*)\.confidant/g);
-  if (decryptedList) {
-    const decs = decryptedList.map((x) => x.replace(/\.(.*)\.confidant/, "$1"));
-    files = Array.from(new Set(vaults).difference(new Set(decs)));
+  const decryptedList = new Files(/\.(.*)\.confidant/g);
+  if (decryptedList.empty()) {
+    files = vaults.difference(decryptedList).data as string[];
   } else {
-    files = vaultList.map((x) => x.replace(".vault", ""));
+    files = vaults.data as string[];
   }
   if (files.length === 1) {
     return files[0];
@@ -203,11 +204,21 @@ export async function getVaultName() {
 
   const vault = await select({
     message: "Select vault to decrypt:",
-    choices: files.map((x) => ({
-      name: x.replace(".vault", ""),
-      value: x.replace(".vault", ""),
-    })),
+    choices: [
+      ...files.map((x) => ({
+        name: x.replace(".vault", ""),
+        value: x.replace(".vault", ""),
+      })),
+      {
+        name: chalk`{red EXIT}`,
+        value: "exit",
+      },
+    ],
   });
+  if (vault === "exit") {
+    log`{yellow Exiting...}`;
+    process.exit(0);
+  }
   return vault;
 }
 
@@ -222,7 +233,7 @@ export async function getDecryptedName() {
     panic`No vaults found.`;
   }
 
-  const decrypted = dec.intersection(vaults);
+  const decrypted = dec.intersection(vaults).data as string[];
 
   if (decrypted.length === 1) {
     return decrypted[0];
@@ -237,4 +248,15 @@ export async function getDecryptedName() {
   });
 
   return vault;
+}
+
+export function getRandomPassword(length: number) {
+  const STRING =
+    "0123456789abcdefghijklmnopqrstuvwxyz!@#$%^&*()ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let pass = "";
+
+  while (pass.length < length) {
+    pass += STRING[Math.floor(Math.random() * STRING.length)];
+  }
+  return pass;
 }

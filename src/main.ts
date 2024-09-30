@@ -75,7 +75,11 @@ export async function initialize(password: string, dirname: string) {
   // create dirname.vault
   writeFileSync(
     `${dirname}.vault`,
-    Buffer.concat([Buffer.from(JSON.stringify(D_C)), separator, E_Z]),
+    Buffer.concat([
+      Buffer.from(Buffer.from(JSON.stringify(D_C)).toString("base64")),
+      separator,
+      E_Z,
+    ]),
   );
 
   console.log(`Recovery phrase:`);
@@ -95,62 +99,70 @@ confidant.zip
 }
 
 export async function decrypt_vault(password: string, dirname: string) {
-  // Read and split the vault file
-  const combined = readFileSync(`${dirname}.vault`);
-  const index = combined.indexOf(separator);
-  const D_C = combined.subarray(0, index).toString("utf8");
-  const E_Z = combined.subarray(index + separator.length);
+  try {
+    // Read and split the vault file
+    const combined = readFileSync(`${dirname}.vault`);
+    const index = combined.indexOf(separator);
+    const D_C = combined.subarray(0, index).toString("utf8");
+    const E_Z = combined.subarray(index + separator.length);
 
-  // Check if password is correct
-  const password_auth_key = HmacSHA256(password, env.AUTH_KEY).toString(
-    enc.Base64,
-  );
-  const config = JSON.parse(D_C);
-  const phrase = AES.decrypt(config.phrasestore, password_auth_key).toString(
-    enc.Utf8,
-  );
-  if (phrase !== env.PHRASE) {
-    panic`Incorrect password. Try again or reset it.`;
+    // Check if password is correct
+    const password_auth_key = HmacSHA256(password, env.AUTH_KEY).toString(
+      enc.Base64,
+    );
+    const config = JSON.parse(Buffer.from(D_C, "base64").toString());
+    const phrase = AES.decrypt(config.phrasestore, password_auth_key).toString(
+      enc.Utf8,
+    );
+    if (phrase !== env.PHRASE) {
+      panic`Incorrect password. Try again or reset it.`;
+    }
+
+    const auth_secret = decrypt(config.keystore, buffer(password_auth_key));
+    const K = hmac(auth_secret, config.confsalt);
+    const E_K = readFileSync(`${dirname}.key`);
+    const keyfile = JSON.parse(decrypt_file(E_K, K).toString("utf8"));
+
+    const K_A = buffer(keyfile.privateKey);
+    const K_B = buffer(config.privateKey);
+    const P_B = getPublic(K_B);
+    const S_AB = await derive(K_A, P_B);
+    const D = pbkdf2(S_AB, buffer(keyfile.salt), keyfile.code, 64, "sha256");
+
+    const Z = decrypt_file(E_Z, D);
+    writeFileSync(`confidant.zip`, Z);
+    writeFileSync(`.${dirname}.confidant`, encrypt(D, buffer(env.AUTH_KEY)));
+    await $`unzip confidant.zip > /dev/null && rm confidant.zip`;
+  } catch (e) {
+    panic`Error decrypting vault. The files could be corrupted.`;
   }
-
-  const auth_secret = decrypt(config.keystore, buffer(password_auth_key));
-  const K = hmac(auth_secret, config.confsalt);
-  const E_K = readFileSync(`${dirname}.key`);
-  const keyfile = JSON.parse(decrypt_file(E_K, K).toString("utf8"));
-
-  const K_A = buffer(keyfile.privateKey);
-  const K_B = buffer(config.privateKey);
-  const P_B = getPublic(K_B);
-  const S_AB = await derive(K_A, P_B);
-  const D = pbkdf2(S_AB, buffer(keyfile.salt), keyfile.code, 64, "sha256");
-
-  const Z = decrypt_file(E_Z, D);
-  writeFileSync(`confidant.zip`, Z);
-  writeFileSync(`.${dirname}.confidant`, encrypt(D, buffer(env.AUTH_KEY)));
-  await $`unzip confidant.zip > /dev/null && rm confidant.zip`;
 }
 
 export async function encrypt_vault(dirname: string) {
-  const D = decrypt(
-    readFileSync(`.${dirname}.confidant`),
-    buffer(env.AUTH_KEY),
-  );
-  // create zip file and encrypt it
-  await $`zip -r9 confidant.zip ${dirname} > /dev/null`;
-  await $`rm -rf ${dirname}`;
-  const Z = readFileSync("confidant.zip");
-  const E_Z = encrypt_file(Z, D);
+  try {
+    const D = decrypt(
+      readFileSync(`.${dirname}.confidant`),
+      buffer(env.AUTH_KEY),
+    );
+    // create zip file and encrypt it
+    await $`zip -r9 confidant.zip ${dirname} > /dev/null`;
+    await $`rm -rf ${dirname}`;
+    const Z = readFileSync("confidant.zip");
+    const E_Z = encrypt_file(Z, D);
 
-  // read original vault file to get header data
-  const vaultfile = readFileSync(`${dirname}.vault`);
-  const index = vaultfile.indexOf(separator);
+    // read original vault file to get header data
+    const vaultfile = readFileSync(`${dirname}.vault`);
+    const index = vaultfile.indexOf(separator);
 
-  // write new data to vault
-  writeFileSync(
-    `${dirname}.vault`,
-    Buffer.concat([vaultfile.subarray(0, index), separator, E_Z]),
-  );
-  await $`rm confidant.zip .${dirname}.confidant`;
+    // write new data to vault
+    writeFileSync(
+      `${dirname}.vault`,
+      Buffer.concat([vaultfile.subarray(0, index), separator, E_Z]),
+    );
+    await $`rm confidant.zip .${dirname}.confidant`;
+  } catch (e) {
+    panic`Error encrypting vault. The files could be corrupted.`;
+  }
 }
 
 export async function recovery(recoverystring: string) {
