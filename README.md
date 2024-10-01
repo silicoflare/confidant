@@ -25,6 +25,7 @@ The vault has several layers of security to ensure that the contents are safe. T
 2. **AES256**: The vault is encrypted using the AES256 algorithm, which is a symmetric encryption algorithm. The key is generated using the ECDH algorithm.
 3. **PBKDF2**: The password is hashed using the PBKDF2 algorithm, which is a key derivation function. This ensures that the password is not stored in plain text.
 4. **HMAC-SHA256**: The keys are encrypted using the HMAC-SHA256 algorithm, which is a hash-based message authentication code. This ensures that the keys are unique and cannot be tampered with.
+5. **Unique build parameters:** Every binary built by you from source has completely unique parameters in the `env.ts` file, which means ONLY that binary can be used to decrypt a vault made with the binary.
 
 ---
 

@@ -5,8 +5,8 @@ import { $ } from "bun";
 import chalk from "chalk-template";
 import { Command } from "commander";
 import { decrypt_vault, encrypt_vault, initialize, reset } from "./src/main";
-import { existsSync, readdirSync } from "fs";
-import checkForFiles, {
+import { readdirSync } from "fs";
+import {
   Files,
   getDecryptedName,
   getDirectoryNames,
@@ -15,7 +15,6 @@ import checkForFiles, {
   log,
   panic,
 } from "./src/utils";
-import { randomBytes } from "crypto";
 
 const program = new Command();
 const { exit } = process;
