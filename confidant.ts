@@ -1,7 +1,6 @@
-#!/bin/env bun
+#!/bin/env node
 
 import { input, password } from "@inquirer/prompts";
-import { $ } from "bun";
 import chalk from "chalk-template";
 import { Command } from "commander";
 import { decrypt_vault, encrypt_vault, initialize, reset } from "./src/main";
@@ -18,7 +17,6 @@ import {
 
 const program = new Command();
 const { exit } = process;
-$.nothrow();
 
 program.name("confidant").description("Creates a very secure file vault.");
 

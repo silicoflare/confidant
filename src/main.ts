@@ -1,8 +1,7 @@
 import { parse, stringify } from "@iarna/toml";
-import { $ } from "bun";
 import { pbkdf2Sync as pbkdf2, randomBytes } from "crypto";
 import { derive, getPublic } from "eccrypto";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, rmSync, writeFileSync } from "fs";
 import {
   buffer,
   decrypt,
@@ -24,6 +23,7 @@ import env from "../env";
 import { AES, enc, HmacSHA256 } from "crypto-js";
 import chalk from "chalk-template";
 import { input, password } from "@inquirer/prompts";
+import AdmZip from "adm-zip";
 
 console.info = function () {};
 const { exit } = process;
@@ -36,8 +36,10 @@ export async function initialize(password: string, dirname: string) {
   const salt = randomBytes(32);
   const code = random(10000, 100000);
   const D = pbkdf2(S_AB, salt, code, 64, "sha256");
-  await $`zip -r9 confidant.zip ${dirname} > /dev/null`;
-  await $`rm -rf ${dirname}`;
+  const zip = new AdmZip();
+  zip.addLocalFolder("./" + dirname);
+  zip.writeZip("./confidant.zip");
+  rmSync(dirname, { recursive: true });
   const Z = readFileSync("confidant.zip");
   const E_Z = encrypt_file(Z, D);
 
@@ -84,13 +86,12 @@ export async function initialize(password: string, dirname: string) {
 
   console.log(`Recovery phrase:`);
   console.log(chalk`{magenta    ${recovery_phrase}}`);
-  await $`rm confidant.zip`;
+  rmSync("confidant.zip");
 
   // create .gitignore
   const gitignore = `# .gitignore
 
-*.con
-*.fid
+*.key
 *_recovery.txt
 confidant.zip
 *.confidant
@@ -132,7 +133,9 @@ export async function decrypt_vault(password: string, dirname: string) {
     const Z = decrypt_file(E_Z, D);
     writeFileSync(`confidant.zip`, Z);
     writeFileSync(`.${dirname}.confidant`, encrypt(D, buffer(env.AUTH_KEY)));
-    await $`unzip confidant.zip > /dev/null && rm confidant.zip`;
+    const unzip = new AdmZip("./confidant.zip");
+    unzip.extractAllTo(`./${dirname}`, true);
+    rmSync("./confidant.zip");
   } catch (e) {
     panic`Error decrypting vault. The files could be corrupted.`;
   }
@@ -145,8 +148,10 @@ export async function encrypt_vault(dirname: string) {
       buffer(env.AUTH_KEY),
     );
     // create zip file and encrypt it
-    await $`zip -r9 confidant.zip ${dirname} > /dev/null`;
-    await $`rm -rf ${dirname}`;
+    const zip = new AdmZip();
+    zip.addLocalFolder("./" + dirname);
+    zip.writeZip("./confidant.zip");
+    rmSync(dirname, { recursive: true });
     const Z = readFileSync("confidant.zip");
     const E_Z = encrypt_file(Z, D);
 
@@ -159,7 +164,8 @@ export async function encrypt_vault(dirname: string) {
       `${dirname}.vault`,
       Buffer.concat([vaultfile.subarray(0, index), separator, E_Z]),
     );
-    await $`rm confidant.zip .${dirname}.confidant`;
+    rmSync("./confidant.zip");
+    rmSync(`./.${dirname}.confidant`);
   } catch (e) {
     panic`Error encrypting vault. The files could be corrupted.`;
   }
@@ -231,7 +237,7 @@ export async function reset(dirname: string, recoverystring: string) {
       ]),
     );
 
-    writeFileSync(`${dirname}_recovery.txt`, newrecphrase);
+    writeFileSync(`${dirname}_recovery.txt`, newrecphrase + "\n");
     console.log(`New recovery phrase:`);
     console.log(chalk`{magenta    ${newrecphrase}}`);
   } catch (e) {

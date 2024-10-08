@@ -3,7 +3,6 @@ import { createHmac } from "crypto";
 import { generatePrivate, getPublic } from "eccrypto";
 import { generate } from "random-words";
 import chalk from "chalk-template";
-import { $ } from "bun";
 import { existsSync, readdirSync } from "fs";
 import { select } from "@inquirer/prompts";
 
@@ -61,15 +60,6 @@ export function decrypt_file(input: Buffer, key: Buffer) {
   return Buffer.from(result.toString(enc.Utf8), "base64");
 }
 
-export async function exists(dir: string) {
-  try {
-    await $`test -d ${dir}`;
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
 export function log(
   str: TemplateStringsArray,
   ...placeholders: unknown[]
@@ -109,13 +99,17 @@ export function print(key: string, value: string) {
 export class Files {
   data: string[] | null = null;
 
-  constructor(regex?: RegExp | string) {
+  constructor(regex?: RegExp | string | string[]) {
     if (!regex) {
       return this;
     }
     try {
-      const data = readdirSync(".").filter((x) => x.match(regex));
-      this.data = data ? data.map((x) => x.replace(regex, "$1")) : null;
+      if (Array.isArray(regex)) {
+        this.data = regex;
+      } else {
+        const data = readdirSync(".").filter((x) => x.match(regex));
+        this.data = data ? data.map((x) => x.replace(regex, "$1")) : null;
+      }
     } catch (error) {
       console.error("Error executing command:", error);
       this.data = null;
@@ -130,51 +124,57 @@ export class Files {
     return `[ ${this.data ? this.data.join(", ") : "empty"} ]`;
   }
 
-  intersection(a: Files) {
+  intersection(a: Files): Files {
     const obj = new Files();
-    obj.data = Array.from(new Set(this.data).intersection(new Set(a.data)));
+    if (this.data && a.data) {
+      obj.data = this.data.filter((x) => a.data!.includes(x));
+    }
     return obj;
   }
 
-  difference(a: Files) {
+  difference(a: Files): Files {
     const obj = new Files();
-    obj.data = Array.from(new Set(this.data).difference(new Set(a.data)));
+    if (this.data && a.data) {
+      obj.data = this.data.filter((x) => !a.data!.includes(x));
+    }
     return obj;
   }
 }
 
 export async function getDirectoryNames() {
-  const dirlist = (await $`ls -d */`.text()).trim();
+  try {
+    const dirlist = readdirSync(".", { withFileTypes: true })
+      .filter((file) => file.isDirectory())
+      .map((file) => file.name);
 
-  if (!dirlist) {
-    panic`No directories found in current directory, please create one and run "init" again.`;
-    return;
+    if (dirlist.length === 0) {
+      panic`No directories found in current directory, please create one and run "init" again.`;
+      return;
+    }
+    const dirs = new Files(dirlist);
+    const vaults = new Files(/.*\.vault/g);
+    const usableDirs = dirs.difference(vaults);
+
+    if (usableDirs.data && usableDirs.data.length === 0) {
+      panic`No usable directories found in current directory, please create one and run "init" again.`;
+      return;
+    } else if (usableDirs.data && usableDirs.data.length === 1) {
+      return usableDirs.data[0];
+    }
+
+    const dirname = await select({
+      message: "Select a directory to use:",
+      choices: usableDirs.data!.map((x) => ({
+        name: x,
+        value: x,
+      })),
+    });
+
+    return dirname;
+  } catch (e) {
+    console.log(chalk`{red ${e.message}}`);
+    process.exit(1);
   }
-  let dirs: string[];
-  const vaultList = (await $`ls *.vault`.text()).trim().match(/.*\.vault/g);
-  if (vaultList) {
-    const vaults = vaultList.map((x) => x.replace(".vault", ""));
-    dirs = Array.from(new Set(dirlist.split("\n")).difference(new Set(vaults)));
-  } else {
-    dirs = dirlist.split("\n");
-  }
-
-  if (dirs.length === 0) {
-    panic`No usable directories found in current directory, please create one and run "init" again.`;
-    return;
-  } else if (dirs.length === 1) {
-    return dirs[0];
-  }
-
-  const dirname = await select({
-    message: "Select a directory to use:",
-    choices: dirs.map((x) => ({
-      name: x,
-      value: x,
-    })),
-  });
-
-  return dirname;
 }
 
 export async function getVaultName() {
@@ -252,7 +252,7 @@ export async function getDecryptedName() {
 
 export function getRandomPassword(length: number) {
   const STRING =
-    "0123456789abcdefghijklmnopqrstuvwxyz!@#$%^&*()ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    "0123456789abcdefghijklmnopqrstuvwxyz!@#$%^&*ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   let pass = "";
 
   while (pass.length < length) {

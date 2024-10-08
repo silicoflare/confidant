@@ -177,3 +177,4 @@ dist
 # confidant
 env.ts
 test
+executables

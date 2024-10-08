@@ -1,7 +1,7 @@
-import { $ } from "bun";
 import { stringy } from "../src/utils";
 import { randomBytes } from "crypto";
 import chalkTemplate from "chalk-template";
+import { writeFileSync } from "fs";
 
 const envstring = `// env.ts
 const env = {
@@ -15,5 +15,5 @@ const env = {
 export default env;
 `;
 
-await $`echo ${envstring} > env.ts`;
+writeFileSync("./env.ts", envstring);
 console.log(chalkTemplate`{green env.ts initialized sucessfully!}`);

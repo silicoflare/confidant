@@ -1,15 +1,15 @@
 {
   "name": "confidant",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "module": "confidant.ts",
   "type": "module",
   "scripts": {
     "init": "bun ./scripts/init.ts",
-    "sh": "bun ./scripts/sh.ts",
-    "build": "bun ./scripts/build.ts"
+    "build": "bun build --minify ./confidant.ts --target node --outfile ./dist/confidant.mjs",
+    "build-exec": "bun build --compile --minify ./confidant.ts --outfile ./dist/confidant"
   },
   "bin": {
-    "confidant": "./confidant.ts"
+    "confidant": "./dist/confidant.mjs"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -20,9 +20,11 @@
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "@inquirer/prompts": "^6.0.1",
+    "@types/adm-zip": "^0.5.5",
     "@types/commander": "^2.12.2",
     "@types/crypto-js": "^4.2.2",
     "@types/eccrypto": "^1.1.6",
+    "adm-zip": "^0.5.16",
     "argon2": "^0.41.1",
     "chalk": "^5.3.0",
     "chalk-template": "^1.1.0",
